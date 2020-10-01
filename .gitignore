@@ -1,0 +1,7 @@
+venv
+certificate.crt
+key.key
+.env
+config_backups
+__pycache__
+.vscode
