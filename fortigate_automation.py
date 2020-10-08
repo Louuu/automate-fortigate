@@ -1,8 +1,8 @@
-import os
 import requests
 import re
 import base64
 from urllib3.exceptions import InsecureRequestWarning
+
 
 class Fortigate:
     def __init__(self, admin_url, api_key, ssl_verify=True):
@@ -13,51 +13,55 @@ class Fortigate:
 
         self.session = requests.session()
         self.session.headers.update({'Authorization': 'Bearer ' + self.api_key})
-        
+
         if not self.ssl_verify:
             print("WARNING: SSL verification is disabled")
             requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
-    def output_details(self):
+    def outputDetails(self):
 
         print("Admin URL is: " + self.admin_url)
         print("API Key: " + self.api_key)
         return True
 
-    def backupConfig(self, encrypted=False, encryptionKey=None, backupDir=os.path.abspath(os.getcwd() + "/config_backups")):
-        
-        endpoint = "/api/v2/monitor/system/config/backup/"
-        parameters = "?scope=global&destination=file"
+    def backupConfig(self, encrypted=False, encryptionKey=None):
 
-        if not os.path.exists(backupDir):
-            os.makedirs(backupDir)
+        endpoint = "/api/v2/monitor/system/config/backup/"
+        parameters = {
+            'scope': 'global',
+            'destination': 'file'
+        }
 
         if encrypted:
-            parameters = "{0}&password={1}&confirmPassword={1}".format(parameters, encryptionKey)
+            parameters['password'] = encryptionKey
+            parameters['confirmPassword'] = encryptionKey
 
-        response = self.session.get(self.admin_url + endpoint + parameters, verify=self.ssl_verify)
+        response = self.session.get(self.admin_url + endpoint, params=parameters, verify=self.ssl_verify)
 
         if response.status_code == 200:
-            filename = response.headers['content-disposition']
-            filename = re.findall("filename=(.+)", filename)[0].replace('"','')
 
-            with open(backupDir + "/" + filename, 'w') as configBackupWriter:
-                configBackupWriter.write(response.text)
-            
-            print("Configuration Backup Successful")
-            return True
+            filename = response.headers['content-disposition']
+            filename = re.findall("filename=(.+)", filename)[0].replace('"', '')
+
+            output = {
+                'configuration': response.text,
+                'original_filename': filename
+            }
+
+            print("Configuration backup successful")
+            return output
         else:
-            print("Configuration Backup Failed - {}".format(response.status_code))
+            print("Configuration backup failed")
             return False
-    
-    def uploadCertificate(self, name, certificate, key, password=None):
+
+    def uploadLocalCertificate(self, certificate_name, certificate, key, password=None):
 
         endpoint = "/api/v2/monitor/vpn-certificate/local/import"
         payload = {
-            'type': 'regular', 
-            'scope': 'global', 
-            'certname': name, 
-            'file_content': certificate, 
+            'type': 'regular',
+            'scope': 'global',
+            'certname': certificate_name,
+            'file_content': certificate,
             'key_file_content': key
         }
 
@@ -65,13 +69,41 @@ class Fortigate:
             payload['password'] = password
 
         response = self.session.post(self.admin_url + endpoint, json=payload, verify=self.ssl_verify)
-        
+
         if response.status_code == 200:
-            print("Certificate Upload Successful - Certificate Name {}".format(name))
+            print("Certificate upload successful - certificate came {}".format(certificate_name))
             return True
-        else: 
-            print("Certificate Upload Failed - {}".format(response.status_code))
+        else:
+            print("Certificate upload failed - {}".format(response.status_code))
             return False
-    
-    def setSSLVPNCertificate():
-        pass
+
+    def setSSLVPNCertificate(self, certificate_name):
+
+        endpoint = "/api/v2/cmdb/vpn.ssl/settings"
+        payload = {
+            'servercert': certificate_name
+        }
+
+        response = self.session.put(self.admin_url + endpoint, json=payload, verify=self.ssl_verify)
+
+        if response.status_code == 200:
+            print("SSL VPN certificate configured successfully")
+            return True
+        else:
+            print("SSL VPN certificate configuration failed")
+            return False
+
+    def setInspectionProfileServerCertificate(self, profile_name, certificate_name):
+
+        endpoint = "/api/v2/cmdb/firewall/ssl-ssh-profile/{0}".format(profile_name)
+        payload = {
+            'servercert': certificate_name
+        }
+
+        response = self.session.put(self.admin_url + endpoint, json=payload, verify=self.ssl_verify)
+
+        if response.status_code == 200:
+            print("Inspection profile certificate configured successfully for {0}".format(profile_name))
+            return True
+        else:
+            print("Inspection profile certificate configuration failed for {0}".format(profile_name))
